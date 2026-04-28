@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>유튜브 썸네일 전략 분석기</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+  :root {
+    --bg: #0f0f0f; --surface: #1a1a1a; --surface2: #242424; --border: #2e2e2e;
+    --text: #f0f0f0; --text2: #999; --text3: #666;
+    --red-bg: #2a1010; --red-text: #ff7070; --red-border: #3a1515;
+    --green-bg: #0d2a1a; --green-text: #66dd99; --green-border: #1a3a25;
+    --blue-bg: #0d1a2a; --blue-text: #6699ff; --blue-border: #152a44;
+    --gold-bg: #2a2010; --gold-text: #ffcc66; --gold-border: #3a3015;
+    --accent: #ff4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Noto Sans KR', sans-serif; min-height: 100vh; }
+  header { border-bottom: 1px solid var(--border); padding: 18px 32px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: rgba(15,15,15,0.95); backdrop-filter: blur(10px); z-index: 100; }
+  header h1 { font-size: 15px; font-weight: 700; }
+  header h1 span { color: var(--accent); }
+  .status-row { display: flex; align-items: center; gap: 14px; }
+  .api-status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text3); }
+  .api-dot { width: 6px; height: 6px; border-radius: 50%; background: #44cc88; box-shadow: 0 0 6px #44cc88; }
+  .main { max-width: 1100px; margin: 0 auto; padding: 32px; }
+  .search-area { margin-bottom: 36px; }
+  .search-area h2 { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 6px; }
+  .search-area p { font-size: 13px; color: var(--text2); margin-bottom: 18px; }
+  .search-row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .search-row input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 11px 14px; font-size: 14px; color: var(--text); font-family: inherit; outline: none; }
+  .search-row input:focus { border-color: #555; }
+  .search-row input::placeholder { color: var(--text3); }
+  .search-row button { background: var(--accent); border: none; border-radius: 8px; padding: 11px 22px; font-size: 14px; font-weight: 700; color: #fff; cursor: pointer; font-family: inherit; white-space: nowrap; }
+  .search-row button:hover { opacity: 0.85; }
+  .search-row button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 4px 11px; border-radius: 100px; border: 1px solid var(--border); color: var(--text2); background: var(--surface); cursor: pointer; }
+  .chip:hover { border-color: #555; color: var(--text); }
+  .loading { display: none; text-align: center; padding: 60px 0; color: var(--text3); font-size: 13px; }
+  .loading.on { display: block; }
+  .spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 10px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .progress-steps { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; max-width: 320px; margin-left: auto; margin-right: auto; }
+  .step { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text3); }
+  .step.done { color: #44cc88; }
+  .step.active { color: var(--text2); }
+  .step-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .step.done .step-dot { background: #44cc88; }
+  .step.active .step-dot { background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .results { display: none; }
+  .results.on { display: block; }
+  .result-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .result-topic { font-size: 13px; color: var(--text3); }
+  .result-topic strong { color: var(--text); font-weight: 500; }
+  .yt-all-link { font-size: 12px; color: var(--blue-text); text-decoration: none; border: 1px solid var(--blue-border); border-radius: 6px; padding: 5px 11px; }
+  .yt-all-link:hover { background: var(--blue-bg); }
+  .section-divider { display: flex; align-items: center; gap: 12px; margin: 40px 0 28px; }
+  .section-divider-line { flex: 1; height: 1px; background: var(--border); }
+  .section-divider-label { font-size: 13px; font-weight: 700; color: var(--text3); white-space: nowrap; letter-spacing: 0.05em; }
+  .type-section { margin-bottom: 32px; }
+  .type-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .badge { font-size: 11px; font-weight: 700; padding: 2px 9px; border-radius: 100px; letter-spacing: 0.02em; }
+  .ba { background: var(--red-bg); color: var(--red-text); border: 1px solid var(--red-border); }
+  .bb { background: var(--green-bg); color: var(--green-text); border: 1px solid var(--green-border); }
+  .bc { background: var(--blue-bg); color: var(--blue-text); border: 1px solid var(--blue-border); }
+  .bd { background: var(--gold-bg); color: var(--gold-text); border: 1px solid var(--gold-border); }
+  .type-desc { font-size: 12px; color: var(--text2); }
+  .thumb-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 12px; }
+  @media(max-width:700px){ .thumb-grid { grid-template-columns: 1fr; } .main { padding: 16px; } header { padding: 14px 16px; } }
+  .thumb-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; transition: border-color .15s, transform .15s; }
+  .thumb-card:hover { border-color: #555; transform: translateY(-2px); }
+  .thumb-img-wrap { position: relative; width: 100%; aspect-ratio: 16/9; overflow: hidden; background: var(--surface2); }
+  .thumb-img-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .2s; }
+  .thumb-card:hover img { transform: scale(1.04); }
+  .zoom-ov { position: absolute; inset: 0; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity .15s; }
+  .thumb-card:hover .zoom-ov { opacity: 1; }
+  .zoom-ov span { font-size: 11px; color: #fff; background: rgba(0,0,0,.55); padding: 4px 11px; border-radius: 100px; border: 1px solid rgba(255,255,255,.2); }
+  .views-bar { background: var(--surface2); padding: 6px 11px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+  .views-num { font-size: 12px; font-weight: 700; color: #44cc88; }
+  .upload-date { font-size: 11px; color: var(--text3); }
+  .thumb-body { padding: 9px 11px 11px; }
+  .thumb-title { font-size: 12px; font-weight: 500; color: var(--text); line-height: 1.45; margin-bottom: 5px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .thumb-channel { font-size: 11px; color: var(--text3); margin-bottom: 7px; }
+  .ai-reason { font-size: 11px; color: var(--text2); line-height: 1.5; padding-top: 7px; border-top: 1px solid var(--border); }
+  .ai-tag { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 100px; margin-bottom: 4px; }
+  .ai-tag-a { background: var(--red-bg); color: var(--red-text); border: 1px solid var(--red-border); }
+  .ai-tag-b { background: var(--green-bg); color: var(--green-text); border: 1px solid var(--green-border); }
+  .ai-tag-c { background: var(--blue-bg); color: var(--blue-text); border: 1px solid var(--blue-border); }
+  .ai-tag-global { background: var(--gold-bg); color: var(--gold-text); border: 1px solid var(--gold-border); }
+  .popup-ov { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.88); z-index: 1000; align-items: center; justify-content: center; padding: 20px; backdrop-filter: blur(6px); }
+  .popup-ov.open { display: flex; }
+  .popup-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; max-width: 700px; width: 100%; animation: popIn .18s ease; max-height: 90vh; overflow-y: auto; }
+  @keyframes popIn { from { transform: scale(.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .popup-img { width: 100%; aspect-ratio: 16/9; object-fit: cover; display: block; background: var(--surface2); }
+  .popup-stats { background: var(--surface2); padding: 10px 18px; display: flex; gap: 24px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .pstat .lbl { font-size: 11px; color: var(--text3); margin-bottom: 2px; }
+  .pstat .val { font-size: 13px; font-weight: 500; color: var(--text); }
+  .pstat .val.views { color: #44cc88; }
+  .popup-body { padding: 14px 18px 18px; }
+  .popup-title { font-size: 15px; font-weight: 700; color: var(--text); margin: 8px 0 10px; line-height: 1.4; }
+  .popup-ai { font-size: 13px; color: var(--text2); line-height: 1.6; margin-bottom: 14px; padding: 10px 12px; background: var(--surface2); border-radius: 7px; border-left: 3px solid var(--accent); }
+  .popup-ai-label { font-size: 10px; color: var(--text3); margin-bottom: 4px; }
+  .popup-actions { display: flex; gap: 8px; }
+  .popup-yt-btn { flex: 1; display: block; text-align: center; text-decoration: none; background: #ff0000; color: #fff; font-size: 13px; font-weight: 700; padding: 10px; border-radius: 7px; font-family: inherit; }
+  .popup-yt-btn:hover { opacity: .85; }
+  .popup-close-btn { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 16px; font-size: 13px; color: var(--text2); cursor: pointer; font-family: inherit; }
+  .popup-close-btn:hover { background: #2e2e2e; }
+  .error { display: none; background: var(--red-bg); border: 1px solid var(--red-border); border-radius: 7px; padding: 9px 13px; font-size: 13px; color: var(--red-text); margin-bottom: 12px; }
+  .error.on { display: block; }
+  footer { text-align: center; padding: 20px; font-size: 11px; color: var(--text3); border-top: 1px solid var(--border); margin-top: 40px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>썸네일 <span>분석기</span></h1>
+  <div class="status-row">
+    <div class="api-status"><div class="api-dot"></div><span>YouTube API</span></div>
+    <div class="api-status"><div class="api-dot"></div><span>Claude AI 분류</span></div>
+  </div>
+</header>
+
+<div class="main">
+  <div class="search-area">
+    <h2>유튜브 썸네일<br>전략 분석</h2>
+    <p>주제 입력 → 국내 롱폼 영상 수집 → Claude AI가 썸네일을 분석해서 A/B/C 타입으로 자동 분류</p>
+    <div class="search-row">
+      <input type="text" id="topicInput" placeholder="예: 카르니틴, 홈카페 레시피, 30대 재테크..." />
+      <button id="searchBtn" onclick="doSearch()">분석하기</button>
+    </div>
+    <div class="chips">
+      <span class="chip" onclick="setTopic('카르니틴')">카르니틴</span>
+      <span class="chip" onclick="setTopic('다이어트 식단')">다이어트 식단</span>
+      <span class="chip" onclick="setTopic('홈카페 레시피')">홈카페 레시피</span>
+      <span class="chip" onclick="setTopic('30대 재테크')">30대 재테크</span>
+      <span class="chip" onclick="setTopic('영어 독학')">영어 독학</span>
+      <span class="chip" onclick="setTopic('헬스 루틴')">헬스 루틴</span>
+    </div>
+  </div>
+
+  <div class="error" id="errBox"></div>
+
+  <div class="loading" id="loadingEl">
+    <div class="spinner"></div>
+    <div id="loadTxt">검색 중...</div>
+    <div class="progress-steps" id="progressSteps">
+      <div class="step" id="step1"><div class="step-dot"></div>국내 롱폼 영상 검색</div>
+      <div class="step" id="step2"><div class="step-dot"></div>조회수 · 썸네일 수집</div>
+      <div class="step" id="step3"><div class="step-dot"></div>Claude AI 썸네일 분석</div>
+      <div class="step" id="step4"><div class="step-dot"></div>A/B/C 타입 분류 완료</div>
+    </div>
+  </div>
+
+  <div class="results" id="resultsEl">
+    <div class="result-header">
+      <div class="result-topic">주제: <strong id="topicLabel"></strong></div>
+      <a class="yt-all-link" id="ytAllLink" href="#" target="_blank">유튜브 전체 검색 →</a>
+    </div>
+    <div class="section-divider"><div class="section-divider-line"></div><div class="section-divider-label">🇰🇷 국내 롱폼 — AI 분류</div><div class="section-divider-line"></div></div>
+    <div id="secA" class="type-section"></div>
+    <div id="secB" class="type-section"></div>
+    <div id="secC" class="type-section"></div>
+    <div class="section-divider"><div class="section-divider-line"></div><div class="section-divider-label">🌍 해외 참고</div><div class="section-divider-line"></div></div>
+    <div id="secGlobal" class="type-section"></div>
+  </div>
+</div>
+
+<footer>썸네일 분석기 · YouTube Data API v3 + Claude AI · 썸네일 내용 기반 A/B/C 자동 분류</footer>
+
+<div class="popup-ov" id="popupOv" onclick="outsideClose(event)">
+  <div class="popup-box">
+    <img class="popup-img" id="pImg" src="" alt="">
+    <div class="popup-stats">
+      <div class="pstat"><div class="lbl">조회수</div><div class="val views" id="pViews">—</div></div>
+      <div class="pstat"><div class="lbl">채널</div><div class="val" id="pChannel">—</div></div>
+      <div class="pstat"><div class="lbl">업로드</div><div class="val" id="pDate">—</div></div>
+      <div class="pstat"><div class="lbl">AI 분류</div><div class="val" id="pType">—</div></div>
+    </div>
+    <div class="popup-body">
+      <span class="badge" id="pBadge"></span>
+      <div class="popup-title" id="pTitle"></div>
+      <div class="popup-ai">
+        <div class="popup-ai-label">AI 썸네일 분석</div>
+        <div id="pAiReason"></div>
+      </div>
+      <div class="popup-actions">
+        <a class="popup-yt-btn" id="pYtBtn" href="#" target="_blank">▶ 유튜브에서 보기</a>
+        <button class="popup-close-btn" onclick="closePopup()">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var YT_API_KEY = 'AIzaSyCiTEzjHK4Hn6EtsFvPVV03hyJNvU1ePQA';
+var videoData = [];
+
+var BADGE = {
+  a: { cls: 'ba', label: 'Type A · 조회수 타겟' },
+  b: { cls: 'bb', label: 'Type B · 브랜딩 타겟' },
+  c: { cls: 'bc', label: 'Type C · 광고 최적화' },
+  global: { cls: 'bd', label: '🌍 해외 참고' }
+};
+
+var TYPE_DESC = {
+  a: '스토리·감정·궁금증 유발 → 제품 직접 노출 없이 클릭 유도',
+  b: '채널 브랜드·전문가·신뢰감 중심 → 충성 구독자 유입',
+  c: '제품·효능 직관적 노출 → 구매/전환 유도'
+};
+
+function setTopic(t) { document.getElementById('topicInput').value = t; }
+function showErr(msg) { var el = document.getElementById('errBox'); el.textContent = msg; el.classList.add('on'); }
+function hideErr() { document.getElementById('errBox').classList.remove('on'); }
+
+function setStep(n) {
+  for (var i = 1; i <= 4; i++) {
+    var el = document.getElementById('step'+i);
+    el.className = 'step' + (i < n ? ' done' : (i === n ? ' active' : ''));
+  }
+}
+
+function fmtViews(n) {
+  if (n >= 100000000) return (n/100000000).toFixed(1) + '억회';
+  if (n >= 10000) return Math.floor(n/10000) + '만회';
+  if (n >= 1000) return (n/1000).toFixed(1) + '천회';
+  return n.toLocaleString() + '회';
+}
+
+function fmtDate(iso) {
+  var d = new Date(iso);
+  return d.getFullYear() + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + String(d.getDate()).padStart(2,'0');
+}
+
+function parseDuration(dur) {
+  if (!dur) return 0;
+  var m = dur.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return 0;
+  return (parseInt(m[1]||0)*3600) + (parseInt(m[2]||0)*60) + parseInt(m[3]||0);
+}
+
+function isKorean(str) { return /[가-힣]/.test(str); }
+
+async function searchVideos(topic, regionCode, lang, duration, maxResults) {
+  var url = 'https://www.googleapis.com/youtube/v3/search?part=snippet' +
+    '&q=' + encodeURIComponent(topic) +
+    '&type=video&videoDuration=' + duration +
+    '&order=relevance&maxResults=' + maxResults +
+    '&regionCode=' + regionCode +
+    '&relevanceLanguage=' + lang +
+    '&key=' + YT_API_KEY;
+  var res = await fetch(url);
+  var data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.items || [];
+}
+
+async function getVideoDetails(ids) {
+  if (!ids.length) return {};
+  var url = 'https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet,contentDetails&id=' +
+    ids.join(',') + '&key=' + YT_API_KEY;
+  var res = await fetch(url);
+  var data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  var map = {};
+  (data.items || []).forEach(function(item) {
+    var t = item.snippet.thumbnails;
+    map[item.id] = {
+      id: item.id,
+      views: parseInt(item.statistics.viewCount || 0),
+      date: fmtDate(item.snippet.publishedAt),
+      channel: item.snippet.channelTitle,
+      title: item.snippet.title,
+      duration: parseDuration(item.contentDetails.duration),
+      thumb: (t.maxres || t.high || t.medium || t.default).url
+    };
+  });
+  return map;
+}
+
+// Claude API로 썸네일 이미지+제목 분석해서 A/B/C 분류
+async function classifyWithClaude(videos, topic) {
+  var videoList = videos.map(function(v, i) {
+    return (i+1) + '. 제목: ' + v.title + ' / 채널: ' + v.channel + ' / 조회수: ' + fmtViews(v.views);
+  }).join('\n');
+
+  var prompt = '당신은 유튜브 썸네일 전략 전문가입니다.\n\n' +
+    '주제: "' + topic + '"\n\n' +
+    '아래 영상들을 분석해서 각각 A/B/C 타입으로 분류하고 이유를 설명해주세요.\n\n' +
+    '분류 기준:\n' +
+    '- Type A (조회수 타겟): 제품/주제를 직접 노출하지 않고, 스토리·감정·궁금증·논란으로 클릭 유도. 자극적 후크, 양자택일, 충격 프레임\n' +
+    '- Type B (브랜딩 타겟): 채널 브랜드·전문가 얼굴·신뢰감 중심. 정보성·방송 클립·전문가 출연으로 충성 구독자 유입\n' +
+    '- Type C (광고 최적화): 제품·효능·결과를 직관적으로 노출. 구매 전환·CPS 최적화 목적\n\n' +
+    '영상 목록:\n' + videoList + '\n\n' +
+    '반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트 없이:\n' +
+    '{"results":[{"idx":1,"type":"a","reason":"분류 이유 1-2줄"},{"idx":2,"type":"b","reason":"분류 이유 1-2줄"}]}';
+
+  var res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [{ role: 'user', content: prompt }]
+    })
+  });
+
+  var data = await res.json();
+  if (!data.content || !data.content[0]) throw new Error('Claude API 응답 오류');
+  var raw = data.content[0].text.replace(/```json\s*/i,'').replace(/```\s*/,'').trim();
+  return JSON.parse(raw);
+}
+
+async function doSearch() {
+  var topic = document.getElementById('topicInput').value.trim();
+  if (!topic) { document.getElementById('topicInput').focus(); return; }
+  hideErr();
+  document.getElementById('loadingEl').classList.add('on');
+  document.getElementById('resultsEl').classList.remove('on');
+  document.getElementById('searchBtn').disabled = true;
+  videoData = [];
+  setStep(1);
+
+  try {
+    // 1. 국내 검색
+    var krMed  = await searchVideos(topic, 'KR', 'ko', 'medium', 25);
+    var krLong = await searchVideos(topic, 'KR', 'ko', 'long', 10);
+    var glMed  = await searchVideos(topic, 'US', 'en', 'medium', 8);
+
+    var seen = {};
+    var allItems = krMed.concat(krLong).concat(glMed).filter(function(it) {
+      var id = it.id.videoId;
+      if (!id || seen[id]) return false;
+      seen[id] = true; return true;
+    });
+
+    setStep(2);
+    var statsMap = {};
+    var allIds = allItems.map(function(it){ return it.id.videoId; });
+    for (var i = 0; i < allIds.length; i += 50) {
+      Object.assign(statsMap, await getVideoDetails(allIds.slice(i, i+50)));
+    }
+
+    // 국내 필터
+    var krSeen = {};
+    var krVideos = [];
+    function tryAdd(it, filterFn) {
+      var v = statsMap[it.id.videoId];
+      if (!v || v.duration < 60 || krSeen[v.id]) return;
+      if (filterFn(v)) { krSeen[v.id] = true; krVideos.push(v); }
+    }
+    krMed.concat(krLong).forEach(function(it){ tryAdd(it, function(v){ return isKorean(v.title); }); });
+    if (krVideos.length < 9) krMed.concat(krLong).forEach(function(it){ tryAdd(it, function(v){ return true; }); });
+    krVideos.sort(function(a,b){ return b.views - a.views; });
+    krVideos = krVideos.slice(0, 9);
+
+    if (!krVideos.length) throw new Error('국내 롱폼 영상을 찾지 못했습니다.');
+
+    // 해외
+    var glSeen = {};
+    var glVideos = glMed
+      .map(function(it){ return statsMap[it.id.videoId]; })
+      .filter(function(v){ return v && v.duration >= 60 && !isKorean(v.title) && !glSeen[v.id] && (glSeen[v.id]=true); })
+      .sort(function(a,b){ return b.views - a.views; })
+      .slice(0, 3);
+
+    // 3. Claude AI 분류
+    setStep(3);
+    document.getElementById('loadTxt').textContent = 'Claude AI가 썸네일 분석 중...';
+    var classification = await classifyWithClaude(krVideos, topic);
+
+    setStep(4);
+
+    // 분류 결과 매핑
+    var groups = { a: [], b: [], c: [] };
+    var resultMap = {};
+    (classification.results || []).forEach(function(r) { resultMap[r.idx] = r; });
+
+    krVideos.forEach(function(v, i) {
+      var r = resultMap[i+1] || { type: 'a', reason: '분류 정보 없음' };
+      var typeKey = r.type || 'a';
+      v.aiType = typeKey;
+      v.aiReason = r.reason || '';
+      v.type = typeKey;
+      v.idx = videoData.length;
+      videoData.push(v);
+      if (groups[typeKey]) groups[typeKey].push(v);
+      else groups['a'].push(v);
+    });
+
+    glVideos.forEach(function(v, i) {
+      v.aiType = 'global';
+      v.aiReason = '해외 상위 노출 썸네일 — 구성 방식, 색상, 텍스트 배치 참고용';
+      v.type = 'global';
+      v.idx = videoData.length;
+      videoData.push(v);
+    });
+
+    renderSection('secA', 'a', 'Type A · 조회수 타겟', TYPE_DESC.a, groups.a);
+    renderSection('secB', 'b', 'Type B · 브랜딩 타겟', TYPE_DESC.b, groups.b);
+    renderSection('secC', 'c', 'Type C · 광고 최적화', TYPE_DESC.c, groups.c);
+    renderSection('secGlobal', 'global', '해외 참고 영상', '썸네일 구도 · 색상 · 텍스트 배치 벤치마크', glVideos);
+
+    document.getElementById('topicLabel').textContent = topic;
+    document.getElementById('ytAllLink').href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(topic) + '&sp=CAM%3D';
+    document.getElementById('resultsEl').classList.add('on');
+
+  } catch(e) {
+    showErr('오류: ' + e.message);
+  }
+
+  document.getElementById('loadingEl').classList.remove('on');
+  document.getElementById('searchBtn').disabled = false;
+}
+
+function renderSection(elId, type, label, desc, videos) {
+  var b = BADGE[type];
+  if (!videos || !videos.length) {
+    document.getElementById(elId).innerHTML = '';
+    return;
+  }
+  var tagCls = 'ai-tag-' + type;
+  var cards = videos.map(function(v) {
+    return '<div class="thumb-card" onclick="openPopup(' + v.idx + ')">' +
+      '<div class="thumb-img-wrap"><img src="' + v.thumb + '" alt="" loading="lazy">' +
+      '<div class="zoom-ov"><span>크게 보기</span></div></div>' +
+      '<div class="views-bar"><span class="views-num">' + fmtViews(v.views) + '</span><span class="upload-date">' + v.date + '</span></div>' +
+      '<div class="thumb-body">' +
+      '<div class="thumb-title">' + esc(v.title) + '</div>' +
+      '<div class="thumb-channel">' + esc(v.channel) + '</div>' +
+      '<div class="ai-reason"><span class="ai-tag ' + tagCls + '">AI 분석</span> ' + esc(v.aiReason) + '</div>' +
+      '</div></div>';
+  }).join('');
+
+  document.getElementById(elId).innerHTML =
+    '<div class="type-header"><span class="badge ' + b.cls + '">' + label + '</span><span class="type-desc">' + desc + '</span></div>' +
+    '<div class="thumb-grid">' + cards + '</div>';
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function openPopup(idx) {
+  var v = videoData[idx];
+  if (!v) return;
+  document.getElementById('pImg').src = v.thumb;
+  document.getElementById('pTitle').textContent = v.title;
+  document.getElementById('pChannel').textContent = v.channel;
+  document.getElementById('pDate').textContent = v.date;
+  document.getElementById('pViews').textContent = fmtViews(v.views);
+  document.getElementById('pAiReason').textContent = v.aiReason;
+  document.getElementById('pType').textContent = BADGE[v.type].label;
+  document.getElementById('pYtBtn').href = 'https://www.youtube.com/watch?v=' + v.id;
+  var b = BADGE[v.type];
+  var badge = document.getElementById('pBadge');
+  badge.textContent = b.label;
+  badge.className = 'badge ' + b.cls;
+  document.getElementById('popupOv').classList.add('open');
+}
+
+function closePopup() { document.getElementById('popupOv').classList.remove('open'); }
+function outsideClose(e) { if (e.target === document.getElementById('popupOv')) closePopup(); }
+document.getElementById('topicInput').addEventListener('keydown', function(e){ if(e.key==='Enter') doSearch(); });
+</script>
+</body>
+</html>
